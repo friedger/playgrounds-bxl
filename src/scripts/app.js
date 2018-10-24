@@ -11,10 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import { getData } from './Data';
+import { getData } from './data';
 import { updateCard } from './ui.js';
 import { initialiseSubs, subscribeUser } from './notifications.js';
-
+import { registerUser } from './webauthn.js';
 
 let swRegistration;
 
@@ -24,7 +24,7 @@ let swRegistration;
   var app = {
     isLoading: true,
     visibleCards: {},
-    selectedCities: [],
+    initialPlayground: [],
     spinner: document.querySelector('.loader'),
     cardTemplate: document.querySelector('.cardTemplate'),
     container: document.querySelector('.main'),
@@ -33,6 +33,7 @@ let swRegistration;
     daysOfWeek: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
   };
 
+  
 
   /*****************************************************************************
    *
@@ -43,7 +44,8 @@ let swRegistration;
   document.getElementById('butRefresh').addEventListener('click', function () {
     // Refresh all of the forecasts
     console.log('butRefresh');
-    // app.updateForecasts();
+    registerUser("friedger");
+    // app.updatePlaygrounds();
   });
 
 
@@ -62,76 +64,6 @@ let swRegistration;
     }
   };
 
-  // Updates a weather card with the latest weather forecast. If the card
-  // doesn't already exist, it's cloned from the template.
-  app.updateForecastCard = function (data) {
-    var dataLastUpdated = new Date(data.created);
-    var sunrise = data.channel.astronomy.sunrise;
-    var sunset = data.channel.astronomy.sunset;
-    var current = data.channel.item.condition;
-    var humidity = data.channel.atmosphere.humidity;
-    var wind = data.channel.wind;
-
-    var card = app.visibleCards[data.key];
-    if (!card) {
-      card = app.cardTemplate.cloneNode(true);
-      card.classList.remove('cardTemplate');
-      card.querySelector('.location').textContent = data.label;
-      card.removeAttribute('hidden');
-      app.container.appendChild(card);
-      app.visibleCards[data.key] = card;
-    }
-
-    // Verifies the data provide is newer than what's already visible
-    // on the card, if it's not bail, if it is, continue and update the
-    // time saved in the card
-    var cardLastUpdatedElem = card.querySelector('.card-last-updated');
-    var cardLastUpdated = cardLastUpdatedElem.textContent;
-    if (cardLastUpdated) {
-      cardLastUpdated = new Date(cardLastUpdated);
-      // Bail if the card has more recent data then the data
-      if (dataLastUpdated.getTime() < cardLastUpdated.getTime()) {
-        return;
-      }
-    }
-    cardLastUpdatedElem.textContent = data.created;
-
-    card.querySelector('.description').textContent = current.text;
-    card.querySelector('.date').textContent = current.date;
-    card.querySelector('.current .icon').classList.add(app.getIconClass(current.code));
-    card.querySelector('.current .temperature .value').textContent =
-      Math.round(current.temp);
-    card.querySelector('.current .sunrise').textContent = sunrise;
-    card.querySelector('.current .sunset').textContent = sunset;
-    card.querySelector('.current .humidity').textContent =
-      Math.round(humidity) + '%';
-    card.querySelector('.current .wind .value').textContent =
-      Math.round(wind.speed);
-    card.querySelector('.current .wind .direction').textContent = wind.direction;
-    var nextDays = card.querySelectorAll('.future .oneday');
-    var today = new Date();
-    today = today.getDay();
-    for (var i = 0; i < 7; i++) {
-      var nextDay = nextDays[i];
-      var daily = data.channel.item.forecast[i];
-      if (daily && nextDay) {
-        nextDay.querySelector('.date').textContent =
-          app.daysOfWeek[(i + today) % 7];
-        nextDay.querySelector('.icon').classList.add(app.getIconClass(daily.code));
-        nextDay.querySelector('.temp-high .value').textContent =
-          Math.round(daily.high);
-        nextDay.querySelector('.temp-low .value').textContent =
-          Math.round(daily.low);
-      }
-    }
-    if (app.isLoading) {
-      app.spinner.setAttribute('hidden', true);
-      app.container.removeAttribute('hidden');
-      app.isLoading = false;
-    }
-  };
-
-
   /*****************************************************************************
    *
    * Methods for dealing with the model
@@ -139,14 +71,14 @@ let swRegistration;
    ****************************************************************************/
 
   /*
-   * Gets a forecast for a specific city and updates the card with the data.
-   * getForecast() first checks if the weather data is in the cache. If so,
+   * Gets details for a specific playground and updates the card with the data.
+   * getPlayground() first checks if the details are in the cache. If so,
    * then it gets that data and populates the card with the cached data.
-   * Then, getForecast() goes to the network for fresh data. If the network
+   * Then, getPlayground() goes to the network for fresh data. If the network
    * request goes through, then the card gets updated a second time with the
    * freshest data.
    */
-  app.getForecast = function (recordid, label) {
+  app.getPlayground = function (recordid, label) {
     getData().then(data => {
       data.records
         .map(record => updateCard(record, app.visibleCards, app.cardTemplate, app.container, 'fr'));
@@ -157,15 +89,15 @@ let swRegistration;
   };
 
   // Iterate all of the cards and attempt to get the latest forecast data
-  app.updateForecasts = function () {
+  app.updatePlaygrounds = function () {
     var keys = Object.keys(app.visibleCards);
     keys.forEach(function (key) {
-      app.getForecast(key);
+      app.getPlayground(key);
     });
   };
 
   app.saveSelectedCities = function () {
-    var selectedCities = JSON.stringify(app.selectedCities);
+    var selectedCities = JSON.stringify(app.initialPlayground);
     localStorage.selectedCities = selectedCities;
   };
 
@@ -192,21 +124,22 @@ let swRegistration;
 
   updateCard(initialPlayground, app.visibleCards, app.cardTemplate, app.container, 'fr');
 
-  app.selectedCities = localStorage.selectedCities;
+  app.initialPlayground = localStorage.selectedCities;
 
-  if (app.selectedCities) {
-    app.selectedCities = JSON.parse(app.selectedCities);
-    app.selectedCities.forEach(function (city) {
-      app.getForecast(city.recordid, city.label);
+  if (app.initialPlayground) {
+    app.initialPlayground = JSON.parse(app.initialPlayground);
+    app.initialPlayground.forEach(function (playground) {
+      app.getPlayground(playground.recordid, playground.label);
     });
   } else {
     updateCard(initialPlayground, app.visibleCards, app.cardTemplate, app.container, 'fr');
-    app.selectedCities = [
+    app.initialPlayground = [
       { key: initialPlayground.recordid, label: initialPlayground.label }
     ];
     app.saveSelectedCities();
   }
 
+  navigator.credentials.get({password:true}).then(result=> console.log("auth r:", result), error => console.log("error", error))
   // S E R V I C E   W O R K E R
 
   // if ('serviceWorker' in navigator && 'PushManager' in window) {
